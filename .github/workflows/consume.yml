@@ -60,11 +60,26 @@ jobs:
               print(f"no_text_message update_id={update_id}; nothing_to_reply")
               raise SystemExit(0)
 
+          target_chat_id = message.get("chat", {}).get("id")
+          message_id = message.get("message_id")
+          message_thread_id = message.get("message_thread_id")
+
+          if target_chat_id is None or str(target_chat_id) != expected_chat_id:
+              raise SystemExit("target chat mismatch")
+
+          body = {
+              "chat_id": target_chat_id,
+              "text": "ответ: " + text,
+          }
+
+          if isinstance(message_id, int):
+              body["reply_parameters"] = {"message_id": message_id}
+
+          if isinstance(message_thread_id, int):
+              body["message_thread_id"] = message_thread_id
+
           request_body = json.dumps(
-              {
-                  "chat_id": expected_chat_id,
-                  "text": "ответ: " + text,
-              },
+              body,
               ensure_ascii=False,
           ).encode("utf-8")
 
@@ -84,5 +99,12 @@ jobs:
           if response.status != 200 or result.get("ok") is not True:
               raise SystemExit("Telegram sendMessage failed")
 
-          print(f"reply_sent update_id={update_id}")
+          sent = result.get("result") or {}
+          sent_message_id = sent.get("message_id")
+          sent_chat_type = (sent.get("chat") or {}).get("type")
+          print(
+              f"reply_sent update_id={update_id} "
+              f"message_id={sent_message_id} chat_type={sent_chat_type} "
+              f"threaded={isinstance(message_thread_id, int)}"
+          )
           PY
