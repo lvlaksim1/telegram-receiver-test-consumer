@@ -9,27 +9,80 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  reply:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
-      - name: Validate transport envelope
+      - name: Validate envelope and echo text back to Telegram
         env:
-          SOURCE: ${{ github.event.client_payload.source }}
-          SCHEMA_VERSION: ${{ github.event.client_payload.schema_version }}
-          UPDATE_ID: ${{ github.event.client_payload.update_id }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          EXPECTED_SOURCE: telegram
         shell: bash
         run: |
           set -euo pipefail
 
-          test "$SOURCE" = "telegram"
-          test "$SCHEMA_VERSION" = "1"
-          test -n "$UPDATE_ID"
+          test -n "${TELEGRAM_BOT_TOKEN:-}"
+          test -n "${TELEGRAM_CHAT_ID:-}"
 
-          if ! [[ "$UPDATE_ID" =~ ^-?[0-9]+$ ]]; then
-            echo "Invalid update_id" >&2
-            exit 1
-          fi
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
 
-          echo "transport_envelope_ok"
+          with open(os.environ["GITHUB_EVENT_PATH"], "r", encoding="utf-8") as fh:
+              event = json.load(fh)
+
+          payload = event.get("client_payload") or {}
+
+          if payload.get("source") != os.environ["EXPECTED_SOURCE"]:
+              raise SystemExit("invalid source")
+
+          if payload.get("schema_version") != 1:
+              raise SystemExit("invalid schema_version")
+
+          update_id = payload.get("update_id")
+          if not isinstance(update_id, int):
+              raise SystemExit("invalid update_id")
+
+          incoming_chat_id = payload.get("chat_id")
+          expected_chat_id = os.environ["TELEGRAM_CHAT_ID"]
+
+          if str(incoming_chat_id) != expected_chat_id:
+              raise SystemExit("chat_id mismatch")
+
+          update = payload.get("update") or {}
+          message = update.get("message") or {}
+          text = message.get("text")
+
+          if not isinstance(text, str) or not text:
+              print(f"no_text_message update_id={update_id}; nothing_to_reply")
+              raise SystemExit(0)
+
+          request_body = json.dumps(
+              {
+                  "chat_id": expected_chat_id,
+                  "text": "ответ: " + text,
+              },
+              ensure_ascii=False,
+          ).encode("utf-8")
+
+          request = urllib.request.Request(
+              f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/sendMessage",
+              data=request_body,
+              headers={
+                  "Content-Type": "application/json",
+                  "User-Agent": "telegram-receiver-test-consumer/0.1",
+              },
+              method="POST",
+          )
+
+          with urllib.request.urlopen(request, timeout=30) as response:
+              result = json.loads(response.read().decode("utf-8"))
+
+          if response.status != 200 or result.get("ok") is not True:
+              raise SystemExit("Telegram sendMessage failed")
+
+          print(f"reply_sent update_id={update_id}")
+          PY
