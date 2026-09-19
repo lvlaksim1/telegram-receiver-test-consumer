@@ -1,0 +1,35 @@
+name: Telegram Update Consumer Test
+
+on:
+  repository_dispatch:
+    types:
+      - telegram_update
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate transport envelope
+        env:
+          SOURCE: ${{ github.event.client_payload.source }}
+          SCHEMA_VERSION: ${{ github.event.client_payload.schema_version }}
+          UPDATE_ID: ${{ github.event.client_payload.update_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test "$SOURCE" = "telegram"
+          test "$SCHEMA_VERSION" = "1"
+          test -n "$UPDATE_ID"
+
+          if ! [[ "$UPDATE_ID" =~ ^-?[0-9]+$ ]]; then
+            echo "Invalid update_id" >&2
+            exit 1
+          fi
+
+          echo "transport_envelope_ok"
