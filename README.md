@@ -2,16 +2,26 @@
 
 Public test consumer for `lvlaksim1/telegram-receiver`.
 
-It listens for:
+The consumer no longer talks to Telegram and does not need Telegram secrets.
 
-`repository_dispatch → telegram_update`
+Contract:
 
-and validates only the transport envelope.
+```text
+stdin:  one normalized receiver event as JSON
+stdout: one action as JSON
+```
 
-The workflow intentionally does **not** print or persist:
+For a text message it returns:
 
-- Telegram message text;
-- raw Telegram Update payload;
-- Telegram chat ID.
+```json
+{
+  "schema_version": 1,
+  "event_id": "<telegram update id>",
+  "action": "reply",
+  "text": "ответ: <incoming text>"
+}
+```
 
-This repository exists only for transport/integration testing.
+For unsupported updates it returns `action=no_reply`.
+
+The consumer is executed by the already-running Receiver worker. One Telegram update no longer creates one GitHub Actions run.
